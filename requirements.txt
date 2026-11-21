@@ -1,2 +1,8 @@
+<<<<<<< HEAD
 pytest
 requests
+=======
+pytest==8.4.2
+requests==2.34.2
+scikit-learn==1.7.2
+>>>>>>> 7bda9eb743e7361eae97187a6b33504083fb40ed
