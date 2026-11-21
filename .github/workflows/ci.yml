@@ -1,4 +1,4 @@
-name: SmartCI - Build Cache Invalidation
+name: Dynamic Test-Subset Routing
 
 on:
   push:
@@ -7,7 +7,65 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.routing.outputs.tests }}
+      run_all: ${{ steps.routing.outputs.run_all }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files
+        id: changed
+        uses: tj-actions/changed-files@v45
+
+      - name: Route tests dynamically
+        id: routing
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.all_changed_files }}
+        run: |
+          python - <<'PY'
+          import os
+
+          files = os.environ["CHANGED_FILES"].split()
+
+          mapping = {
+              "src/pricing.py": "test_pricing.py",
+              "src/cart.py": "test_cart.py",
+              "src/inventory.py": "test_inventory.py",
+          }
+
+          selected = set()
+          run_all = False
+
+          for file in files:
+              if file in mapping:
+                  selected.add(mapping[file])
+              elif file.startswith("tests/"):
+                  run_all = True
+              elif file.startswith("test_"):
+                  selected.add(file)
+              else:
+                  run_all = True
+
+          if run_all or not selected:
+              print("Running the complete test suite")
+              print("tests=all" >> os.environ["GITHUB_OUTPUT"])
+              print("run_all=true" >> os.environ["GITHUB_OUTPUT"])
+          else:
+              tests = " ".join(sorted(selected))
+              print(f"Selected tests: {tests}")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write(f"tests={tests}\n")
+                  output.write("run_all=false\n")
+          PY
+
+  run-tests:
+    needs: detect-changes
     runs-on: ubuntu-latest
 
     steps:
@@ -18,13 +76,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests
-        run: pytest -v
+      - name: Run selected tests
+        run: |
+          if [ "${{ needs.detect-changes.outputs.run_all }}" = "true" ]; then
+            pytest -v
+          else
+            pytest -v ${{ needs.detect-changes.outputs.tests }}
+          fi
