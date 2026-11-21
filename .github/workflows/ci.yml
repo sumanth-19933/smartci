@@ -1,4 +1,4 @@
-name: Dynamic Test-Subset Routing
+name: LLM-Based Build Error Log Summarization
 
 on:
   push:
@@ -84,13 +84,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run selected tests
+      - name: Run selected tests and save log
+        id: tests
+        shell: bash
         env:
           RUN_ALL: ${{ needs.detect-changes.outputs.run_all }}
           SELECTED_TESTS: ${{ needs.detect-changes.outputs.tests }}
         run: |
+          set +e
+
           if [ "$RUN_ALL" = "true" ]; then
-            pytest -v
+            pytest -v 2>&1 | tee build.log
           else
-            pytest -v $SELECTED_TESTS
+            pytest -v $SELECTED_TESTS 2>&1 | tee build.log
           fi
+
+          TEST_STATUS=${PIPESTATUS[0]}
+
+          echo "test_status=$TEST_STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize error log using LLM
+        if: always() && steps.tests.outputs.test_status != '0'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python log_summarizer.py build.log
+
+      - name: Keep workflow failed when tests fail
+        if: always() && steps.tests.outputs.test_status != '0'
+        run: exit 1
