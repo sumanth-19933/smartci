@@ -9,19 +9,20 @@ on:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+
     outputs:
       tests: ${{ steps.routing.outputs.tests }}
       run_all: ${{ steps.routing.outputs.run_all }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Detect changed files
         id: changed
-        uses: tj-actions/changed-files@v45
+        uses: tj-actions/changed-files@v47
 
       - name: Route tests dynamically
         id: routing
@@ -31,7 +32,7 @@ jobs:
           python - <<'PY'
           import os
 
-          files = os.environ["CHANGED_FILES"].split()
+          files = os.environ.get("CHANGED_FILES", "").split()
 
           mapping = {
               "src/pricing.py": "test_pricing.py",
@@ -45,25 +46,24 @@ jobs:
           for file in files:
               if file in mapping:
                   selected.add(mapping[file])
-              elif file.startswith("tests/"):
-                  run_all = True
-              elif file.startswith("test_"):
+              elif file.startswith("test_") and file.endswith(".py"):
                   selected.add(file)
               else:
                   run_all = True
 
-          if run_all or not selected:
-              print("Running the complete test suite")
-             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-             output.write("tests=all\n")
-              output.write("run_all=true\n")
-              print("run_all=true" >> os.environ["GITHUB_OUTPUT"])
-          else:
-              tests = " ".join(sorted(selected))
-              print(f"Selected tests: {tests}")
-              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-                  output.write(f"tests={tests}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              if run_all or not selected:
+                  output.write("tests=all\n")
+                  output.write("run_all=true\n")
+              else:
+                  output.write(
+                      f"tests={' '.join(sorted(selected))}\n"
+                  )
                   output.write("run_all=false\n")
+
+          print("Changed files:", files)
+          print("Selected tests:", selected)
+          print("Run all tests:", run_all)
           PY
 
   run-tests:
@@ -72,7 +72,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -85,9 +85,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run selected tests
+        env:
+          RUN_ALL: ${{ needs.detect-changes.outputs.run_all }}
+          SELECTED_TESTS: ${{ needs.detect-changes.outputs.tests }}
         run: |
-          if [ "${{ needs.detect-changes.outputs.run_all }}" = "true" ]; then
+          if [ "$RUN_ALL" = "true" ]; then
             pytest -v
           else
-            pytest -v ${{ needs.detect-changes.outputs.tests }}
+            pytest -v $SELECTED_TESTS
           fi
