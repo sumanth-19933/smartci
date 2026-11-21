@@ -54,7 +54,9 @@ jobs:
 
           if run_all or not selected:
               print("Running the complete test suite")
-              print("tests=all" >> os.environ["GITHUB_OUTPUT"])
+             with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+             output.write("tests=all\n")
+              output.write("run_all=true\n")
               print("run_all=true" >> os.environ["GITHUB_OUTPUT"])
           else:
               tests = " ".join(sorted(selected))
